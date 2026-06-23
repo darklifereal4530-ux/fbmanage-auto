@@ -1648,6 +1648,7 @@ async function postNow(pid) {
       // Phase 1: init — video_reels endpoint ส่ง video_id + upload_url
       setProgress(pid, 0, `เริ่ม upload session (${(totalSize/1024/1024).toFixed(1)} MB)...`);
       const init = await proxyCall({ action:'reel_init', pageId:page.pageId, token:page.token, fileSize:totalSize });
+      console.log('[DEBUG] reel_init response:', JSON.stringify(init));
       if (!init.video_id) throw new Error('Facebook ไม่ส่ง video_id: ' + JSON.stringify(init));
 
       const uploadSessionId = init.video_id;
