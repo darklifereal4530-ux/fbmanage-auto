@@ -1679,6 +1679,7 @@ async function postNow(pid) {
             });
             if (!chunkRes.ok) throw new Error(`HTTP ${chunkRes.status}`);
             chunkData = await chunkRes.json();
+            console.log(`[DEBUG] chunk ${i+1} response:`, JSON.stringify(chunkData));
             if (chunkData.error) throw new Error(chunkData.error.message || JSON.stringify(chunkData.error));
             lastErr = null;
             break;
