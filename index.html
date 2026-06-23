@@ -1665,6 +1665,7 @@ async function postNow(pid) {
         const params = new URLSearchParams({
           token:        page.token,
           start_offset: String(startOffset),
+          total_size:   String(totalSize),
           upload_url:   encodeURIComponent(uploadUrl),
         });
 

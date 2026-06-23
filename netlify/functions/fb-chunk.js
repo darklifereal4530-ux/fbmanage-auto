@@ -16,6 +16,7 @@ exports.handler = async (event) => {
   const q           = event.queryStringParameters || {};
   const token       = q.token;
   const startOffset = q.start_offset || "0";
+  const totalSize   = q.total_size || "0";
   const uploadUrl   = q.upload_url ? decodeURIComponent(q.upload_url) : null;
 
   if (!token || !uploadUrl) {
@@ -38,10 +39,11 @@ exports.handler = async (event) => {
         path:     url.pathname + url.search,
         method:   "POST",
         headers: {
-          "Authorization":  `OAuth ${token}`,
-          "offset":         startOffset,
-          "Content-Type":   "application/octet-stream",
-          "Content-Length": chunkBuf.length,
+          "Authorization":   `OAuth ${token}`,
+          "offset":          startOffset,
+          "X-Entity-Length": totalSize,
+          "Content-Type":    "application/octet-stream",
+          "Content-Length":  chunkBuf.length,
         },
       };
       const req = https.request(opts, (r) => {
