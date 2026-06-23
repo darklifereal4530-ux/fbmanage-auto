@@ -1652,22 +1652,19 @@ async function postNow(pid) {
       if (!init.video_id) throw new Error('Facebook ไม่ส่ง video_id: ' + JSON.stringify(init));
 
       const uploadSessionId = init.video_id;
-      const uploadUrl       = init.upload_url || '';
+      const uploadUrl       = init.upload_url; // https://rupload.facebook.com/video-upload/v25.0/...
       let   startOffset     = 0;
 
-      // Phase 2: chunks — ส่ง binary ผ่าน /fb-chunk พร้อม retry 3 ครั้ง
+      // Phase 2: ส่ง chunk ไป rupload.facebook.com โดยตรง
       for (let i = 0; i < totalChunks; i++) {
         const end   = Math.min(startOffset + CHUNK, totalSize);
         const chunk = file.slice(startOffset, end);
         const pct   = Math.round(5 + (i / totalChunks) * 80);
         setProgress(pid, pct, `chunk ${i+1}/${totalChunks} — ${(end/1024/1024).toFixed(1)}/${(totalSize/1024/1024).toFixed(1)} MB`);
 
-        // token ส่งผ่าน query string (หลีก Netlify header size limit)
         const params = new URLSearchParams({
-          session_id:   uploadSessionId,
-          start_offset: String(startOffset),
-          page_id:      page.pageId,
           token:        page.token,
+          start_offset: String(startOffset),
           upload_url:   encodeURIComponent(uploadUrl),
         });
 
@@ -1677,7 +1674,7 @@ async function postNow(pid) {
           try {
             const chunkRes = await fetch(`/.netlify/functions/fb-chunk?${params}`, {
               method:  'POST',
-              headers: { 'Content-Type': 'video/mp4' },
+              headers: { 'Content-Type': 'application/octet-stream' },
               body:    chunk,
             });
             if (!chunkRes.ok) throw new Error(`HTTP ${chunkRes.status}`);
@@ -1689,16 +1686,19 @@ async function postNow(pid) {
             lastErr = e;
             if (attempt < 3) {
               setProgress(pid, pct, `chunk ${i+1} retry ${attempt}/3...`);
-              await new Promise(r => setTimeout(r, 1500 * attempt));
+              await new Promise(r => setTimeout(r, 2000 * attempt));
             }
           }
         }
-        if (lastErr) throw new Error(`chunk ${i+1} failed after 3 attempts: ${lastErr.message}`);
+        if (lastErr) throw new Error(`chunk ${i+1} failed: ${lastErr.message}`);
 
+        // rupload ส่ง start_offset ถัดไปหรือ 0 เมื่อครบ
         const nextOffset = parseInt(chunkData.start_offset ?? end);
-        startOffset = nextOffset;
-        if (nextOffset >= totalSize) break;
+        startOffset = nextOffset || end;
+        if (startOffset >= totalSize) break;
       }
+
+
 
       // Phase 3: finish + schedule/publish
       console.log('[DEBUG] scheduledTime before reel_finish:', scheduledTime, 'dtVal:', dtVal);

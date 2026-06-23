@@ -1,5 +1,5 @@
 // netlify/functions/fb-chunk.js
-// รับ raw binary chunk ส่งตรงไป Facebook upload_url (rupload.facebook.com)
+// ส่ง chunk ตรงไป rupload.facebook.com ด้วย raw binary + headers
 
 const https = require("https");
 
@@ -14,14 +14,12 @@ exports.handler = async (event) => {
   if (event.httpMethod !== "POST") return { statusCode: 405, headers: CORS, body: JSON.stringify({ error: "Method not allowed" }) };
 
   const q           = event.queryStringParameters || {};
-  const sessionId   = q.session_id;
-  const startOffset = q.start_offset || "0";
-  const pageId      = q.page_id;
   const token       = q.token;
+  const startOffset = q.start_offset || "0";
   const uploadUrl   = q.upload_url ? decodeURIComponent(q.upload_url) : null;
 
-  if (!sessionId || !pageId || !token) {
-    return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: "Missing: session_id, page_id, token" }) };
+  if (!token || !uploadUrl) {
+    return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: "Missing: token, upload_url" }) };
   }
 
   try {
@@ -33,42 +31,31 @@ exports.handler = async (event) => {
       return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: "Empty chunk" }) };
     }
 
-    const boundary = "----FBChunk" + Date.now();
-    const pre = [
-      `--${boundary}\r\nContent-Disposition: form-data; name="upload_phase"\r\n\r\ntransfer`,
-      `--${boundary}\r\nContent-Disposition: form-data; name="start_offset"\r\n\r\n${startOffset}`,
-      `--${boundary}\r\nContent-Disposition: form-data; name="upload_session_id"\r\n\r\n${sessionId}`,
-      `--${boundary}\r\nContent-Disposition: form-data; name="access_token"\r\n\r\n${token}`,
-    ].join("\r\n") + "\r\n";
-
-    const videoHeader = `--${boundary}\r\nContent-Disposition: form-data; name="video_file_chunk"; filename="chunk.mp4"\r\nContent-Type: video/mp4\r\n\r\n`;
-    const epilogue    = `\r\n--${boundary}--\r\n`;
-    const body        = Buffer.concat([Buffer.from(pre + videoHeader, "utf8"), chunkBuf, Buffer.from(epilogue, "utf8")]);
-
-    // ใช้ upload_url จาก init ถ้ามี มิฉะนั้นใช้ graph-video
-    let hostname = "graph-video.facebook.com";
-    let path     = `/v19.0/${pageId}/videos`;
-    if (uploadUrl) {
-      try {
-        const u = new URL(uploadUrl);
-        hostname = u.hostname;
-        path     = u.pathname + u.search;
-      } catch(e) {}
-    }
-
+    // rupload.facebook.com ต้องการ raw binary + specific headers
+    const url  = new URL(uploadUrl);
     const result = await new Promise((resolve, reject) => {
       const opts = {
-        hostname, path, method: "POST",
+        hostname: url.hostname,
+        path:     url.pathname + url.search,
+        method:   "POST",
         headers: {
-          "Content-Type":   `multipart/form-data; boundary=${boundary}`,
-          "Content-Length": body.length,
+          "Authorization":        `OAuth ${token}`,
+          "offset":               startOffset,
+          "Content-Type":         "application/octet-stream",
+          "Content-Length":       chunkBuf.length,
         },
       };
       const req = https.request(opts, (r) => {
         let d = ""; r.on("data", c => d += c);
-        r.on("end", () => { try { resolve(JSON.parse(d)); } catch { resolve({ raw: d }); } });
+        r.on("end", () => {
+          console.log("rupload response status:", r.statusCode, "body:", d.slice(0, 200));
+          try { resolve(JSON.parse(d)); }
+          catch { resolve({ raw: d, status: r.statusCode }); }
+        });
       });
-      req.on("error", reject); req.write(body); req.end();
+      req.on("error", reject);
+      req.write(chunkBuf);
+      req.end();
     });
 
     return { statusCode: 200, headers: CORS, body: JSON.stringify(result) };
